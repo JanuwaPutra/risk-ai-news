@@ -14,8 +14,42 @@
     }
     
     .article-content {
-        max-height: 300px;
+        max-height: 500px;
         overflow-y: auto;
+        padding: 10px;
+        background-color: #f9f9f9;
+        border-radius: 5px;
+        border: 1px solid #e0e0e0;
+    }
+    
+    .article-content img {
+        max-width: 100%;
+        height: auto;
+        margin: 10px 0;
+        border-radius: 5px;
+        display: block;
+    }
+    
+    .article-content p {
+        margin-bottom: 1rem;
+        line-height: 1.6;
+    }
+    
+    .article-content h1, 
+    .article-content h2, 
+    .article-content h3, 
+    .article-content h4, 
+    .article-content h5, 
+    .article-content h6 {
+        margin-top: 1.5rem;
+        margin-bottom: 1rem;
+    }
+    
+    .article-content figcaption {
+        font-size: 0.85rem;
+        color: #6c757d;
+        text-align: center;
+        padding: 5px 0;
     }
     
     .person-select {
@@ -43,6 +77,61 @@
         width: 100%;
         border-top-left-radius: 10px;
         border-top-right-radius: 10px;
+    }
+    
+    .extracted-content {
+        font-family: Georgia, serif;
+        line-height: 1.7;
+        font-size: 1.05rem;
+    }
+    
+    .goose-content p {
+        margin-bottom: 1.25rem;
+    }
+    
+    /* Styling for article links in table */
+    .article-links {
+        max-height: 150px;
+        overflow-y: auto;
+        scrollbar-width: thin;
+    }
+    
+    .article-links::-webkit-scrollbar {
+        width: 6px;
+    }
+    
+    .article-links::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 10px;
+    }
+    
+    .article-links::-webkit-scrollbar-thumb {
+        background: #ccc;
+        border-radius: 10px;
+    }
+    
+    .article-link-item {
+        transition: all 0.2s ease;
+    }
+    
+    .article-link-item:hover {
+        background-color: rgba(0,0,0,0.03);
+    }
+    
+    .article-link-item a {
+        color: #333;
+    }
+    
+    .article-link-item a:hover {
+        color: #007bff;
+    }
+    
+    .article-link-item .badge {
+        transition: all 0.2s ease;
+    }
+    
+    .article-link-item:hover .badge {
+        background-color: #007bff !important;
     }
 </style>
 @endsection
@@ -248,20 +337,21 @@
 
                     <h5>Hasil Analisis:</h5>
                     <div class="table-responsive">
-                        <!-- <table class="table table-striped table-hover">
+                        <table class="table table-striped table-hover">
                             <thead>
                                 <tr>
                                     <th>Nama Tokoh</th>
                                     <th>Skor Risiko</th>
                                     <th>Kategori</th>
+                                    <th>Urgensi</th>
                                     <th>Jumlah Artikel</th>
-                                    <th>Artikel</th>
+                                    <th style="width: 280px;">Link Artikel</th>
                                 </tr>
                             </thead>
                             <tbody id="analyze-all-results-table">
                                 <!-- Results will be inserted here -->
                             </tbody>
-                        </table> -->
+                        </table>
                     </div>
                 </div>
 
@@ -305,7 +395,32 @@
                     .then(data => {
                         if (data.content) {
                             if (contentDiv) {
-                                contentDiv.innerHTML = data.content;
+                                // Add extraction method info for debugging
+                                let methodInfo = '';
+                                if (data.method) {
+                                    methodInfo = `<div class="alert alert-info small mb-2">
+                                        <i class="bi bi-info-circle"></i> Extracted using: <strong>${data.method}</strong>
+                                    </div>`;
+                                }
+                                
+                                // Check if content contains only images or very little text
+                                const contentText = data.content.replace(/<img[^>]*>/g, '');
+                                const plainText = contentText.replace(/<[^>]*>/g, '').trim();
+                                
+                                if (plainText.length < 200) {
+                                    // Display warning for poor content extraction
+                                    contentDiv.innerHTML = `
+                                        ${methodInfo}
+                                        <div class="alert alert-warning">
+                                            <i class="bi bi-exclamation-triangle"></i> 
+                                            Konten teks tidak dapat diambil dengan baik. Silakan kunjungi 
+                                            <a href="${url}" target="_blank" class="alert-link">situs asli</a> untuk membaca artikel lengkap.
+                                        </div>
+                                        <div class="extracted-content mt-3">${data.content}</div>`;
+                                } else {
+                                    contentDiv.innerHTML = `${methodInfo}${data.content}`;
+                                }
+                                
                                 contentDiv.style.display = 'block';
                             }
                         } else {
@@ -480,16 +595,18 @@
                 // Array to store all results
                 let allResults = [];
                 let completedCount = 0;
+                let errorCount = 0;
+                let skippedArticles = [];
                 
                 // Get the search query from the URL
                 const urlParams = new URLSearchParams(window.location.search);
                 const searchQuery = urlParams.get('query') || '';
 
-                // Process each article sequentially
+                // Process each article sequentially with better error handling
                 function processNextArticle(index) {
                     if (index >= articles.length) {
                         // All articles processed, show final results
-                        showFinalResults(allResults);
+                        showFinalResults(allResults, errorCount, skippedArticles);
                         return;
                     }
                     
@@ -506,13 +623,41 @@
                     const title = article.querySelector('.card-title').textContent;
                     const source = article.querySelector('.badge').textContent;
                     
-                    // Prepare data
+                    // Sites that need special handling
+                    const problematicSites = [
+                        'health.detik.com', 
+                        'detik.com/berita',
+                        'inews.id/lifestyle',
+                        'inews.id/health',
+                        'suara.com', 
+                        'liputan6.com',
+                        'kompas.tv',
+                        'cnnindonesia.com',
+                        'tribunnews.com'
+                    ];
+                    const isProblematicSite = problematicSites.some(site => url.includes(site));
+                    
+                    // Prepare data - use title-only mode for problematic sites
                     const data = {
                         url: url,
                         title: title,
                         source: source,
-                        search_query: searchQuery
+                        search_query: searchQuery,
+                        title_only: isProblematicSite // Special flag for problematic sites
                     };
+                    
+                    // Visual indicator for problematic sites
+                    if (isProblematicSite) {
+                        const indicator = document.createElement('div');
+                        indicator.className = 'position-absolute top-0 start-0 mt-2 ms-2';
+                        indicator.innerHTML = `
+                            <span class="badge bg-warning text-dark">
+                                <i class="bi bi-exclamation-triangle"></i> Limited Mode
+                            </span>
+                        `;
+                        article.style.position = 'relative';
+                        article.appendChild(indicator);
+                    }
                     
                     // Send analysis request for this article
                     fetch('{{ route("news.analyze-all") }}', {
@@ -554,21 +699,16 @@
                             // We don't display any error if no people were found for this specific article
                         } else if (data.error) {
                             console.warn(`Article analysis issue for ${url}: ${data.error}`);
+                            errorCount++;
                         }
+                        
+                        // Mark article as processed visually
+                        markArticleProcessed(article, 'success');
                         
                         // Update progress
                         completedCount++;
                         const progressPercent = (completedCount / articles.length) * 100;
-                        const progressBar = document.getElementById('analyze-progress-bar');
-                        const progressText = document.getElementById('analyze-progress-text');
-                        
-                        if (progressBar) {
-                            progressBar.style.width = progressPercent + '%';
-                        }
-                        
-                        if (progressText) {
-                            progressText.textContent = `${completedCount}/${articles.length} artikel selesai dianalisis`;
-                        }
+                        updateProgress(progressPercent, completedCount, articles.length);
                         
                         // Add small delay before processing next article
                         setTimeout(() => {
@@ -582,34 +722,16 @@
                         const errorMessage = error.message || 'Unknown error';
                         console.warn(`Failed to analyze article at ${url}: ${errorMessage}`);
                         
-                        // Add error indicator to article
-                        const articleCard = articles[index];
-                        if (articleCard) {
-                            articleCard.classList.add('border-danger');
-                            const errorBadge = document.createElement('div');
-                            errorBadge.className = 'position-absolute top-0 end-0 mt-2 me-2';
-                            errorBadge.innerHTML = `
-                                <span class="badge bg-danger" title="${errorMessage}">
-                                    <i class="bi bi-exclamation-triangle"></i> Error
-                                </span>
-                            `;
-                            articleCard.style.position = 'relative';
-                            articleCard.appendChild(errorBadge);
-                        }
+                        // Mark article as error visually
+                        markArticleProcessed(article, 'error', errorMessage);
+                        
+                        // Add to error count
+                        errorCount++;
                         
                         // Update progress and continue
                         completedCount++;
                         const progressPercent = (completedCount / articles.length) * 100;
-                        const progressBar = document.getElementById('analyze-progress-bar');
-                        const progressText = document.getElementById('analyze-progress-text');
-                        
-                        if (progressBar) {
-                            progressBar.style.width = progressPercent + '%';
-                        }
-                        
-                        if (progressText) {
-                            progressText.textContent = `${completedCount}/${articles.length} artikel selesai dianalisis`;
-                        }
+                        updateProgress(progressPercent, completedCount, articles.length);
                         
                         // Add delay before processing next article to avoid overwhelming the server
                         setTimeout(() => {
@@ -618,19 +740,86 @@
                     });
                 }
                 
+                // Helper function to mark article cards visually
+                function markArticleProcessed(article, status, message = '') {
+                    if (status === 'success') {
+                        article.classList.add('border-success');
+                        const successBadge = document.createElement('div');
+                        successBadge.className = 'position-absolute top-0 end-0 mt-2 me-2';
+                        successBadge.innerHTML = `
+                            <span class="badge bg-success">
+                                <i class="bi bi-check-circle"></i> Processed
+                            </span>
+                        `;
+                        article.style.position = 'relative';
+                        article.appendChild(successBadge);
+                    } else if (status === 'error') {
+                        article.classList.add('border-danger');
+                        const errorBadge = document.createElement('div');
+                        errorBadge.className = 'position-absolute top-0 end-0 mt-2 me-2';
+                        errorBadge.innerHTML = `
+                            <span class="badge bg-danger" title="${message}">
+                                <i class="bi bi-exclamation-triangle"></i> Error
+                            </span>
+                        `;
+                        article.style.position = 'relative';
+                        article.appendChild(errorBadge);
+                    }
+                }
+                
+                // Helper function to update progress
+                function updateProgress(percent, completed, total) {
+                    const progressBar = document.getElementById('analyze-progress-bar');
+                    const progressText = document.getElementById('analyze-progress-text');
+                    
+                    if (progressBar) {
+                        progressBar.style.width = percent + '%';
+                    }
+                    
+                    if (progressText) {
+                        progressText.textContent = `${completed}/${total} artikel selesai dianalisis`;
+                    }
+                }
+                
                 // Start processing articles
                 processNextArticle(0);
                 
                 // Function to display final results
-                function showFinalResults(results) {
+                function showFinalResults(results, errorCount, skippedArticles) {
                     const errorElement = document.getElementById('analyze-all-error');
                     const loadingElement = document.getElementById('analyze-all-loading');
                     const resultElement = document.getElementById('analyze-all-result');
                     const analyzedCountElement = document.getElementById('analyzed-count');
                     const resultsTableBody = document.getElementById('analyze-all-results-table');
                     
-                    if (results.length === 0) {
+                    // Show errors if any
+                    if (errorCount > 0 || skippedArticles.length > 0) {
+                        let errorMessage = '';
+                        
+                        if (errorCount > 0) {
+                            errorMessage += `<p><strong>${errorCount} artikel</strong> gagal dianalisis karena masalah teknis.</p>`;
+                        }
+                        
+                        if (skippedArticles.length > 0) {
+                            errorMessage += `<p><strong>${skippedArticles.length} artikel</strong> dilewati karena diketahui problematik:</p>`;
+                            errorMessage += '<ul>';
+                            skippedArticles.slice(0, 5).forEach(article => {
+                                errorMessage += `<li>${article.title} <a href="${article.url}" target="_blank">(link)</a></li>`;
+                            });
+                            if (skippedArticles.length > 5) {
+                                errorMessage += `<li>...dan ${skippedArticles.length - 5} artikel lainnya</li>`;
+                            }
+                            errorMessage += '</ul>';
+                        }
+                        
                         if (errorElement) {
+                            errorElement.innerHTML = errorMessage;
+                            errorElement.style.display = 'block';
+                        }
+                    }
+                    
+                    if (results.length === 0) {
+                        if (errorElement && !errorElement.innerHTML) {
                             errorElement.textContent = 'Tidak ada tokoh yang ditemukan di seluruh artikel. Pastikan data tokoh sudah diimpor dan nama tokoh ditulis dengan benar dalam berita.';
                             errorElement.style.display = 'block';
                         }
@@ -669,15 +858,29 @@
                                 }
                             });
                             
+                            // Ensure urgency is set based on category and score if not present
+                            if (!highestRiskResult.urgency || highestRiskResult.urgency === '') {
+                                if (highestRiskResult.category === 'KRITIS') {
+                                    highestRiskResult.urgency = 'DARURAT';
+                                } else if (highestRiskResult.category === 'TINGGI') {
+                                    // All TINGGI category items get SEGERA urgency to match backend logic
+                                    highestRiskResult.urgency = 'SEGERA';
+                                } else if (highestRiskResult.category === 'SEDANG') {
+                                    highestRiskResult.urgency = 'PERHATIAN';
+                                } else {
+                                    highestRiskResult.urgency = 'MONITORING';
+                                }
+                            }
+                            
                             // Create a row with the highest risk score
                             const row = document.createElement('tr');
                             
-                            // Set row class based on risk category
-                            if (highestRiskResult.category === 'KRITIS') {
+                            // Set row class based on urgency level
+                            if (highestRiskResult.urgency === 'DARURAT') {
                                 row.classList.add('table-danger');
-                            } else if (highestRiskResult.category === 'TINGGI') {
+                            } else if (highestRiskResult.urgency === 'SEGERA') {
                                 row.classList.add('table-warning');
-                            } else if (highestRiskResult.category === 'SEDANG') {
+                            } else if (highestRiskResult.urgency === 'PERHATIAN') {
                                 row.classList.add('table-info');
                             } else {
                                 row.classList.add('table-success');
@@ -687,8 +890,26 @@
                                 <td>${name}</td>
                                 <td>${highestRiskResult.score}</td>
                                 <td><span class="badge bg-${highestRiskResult.category === 'KRITIS' ? 'danger' : (highestRiskResult.category === 'TINGGI' ? 'warning' : (highestRiskResult.category === 'SEDANG' ? 'info' : 'success'))}">${highestRiskResult.category}</span></td>
+                                <td><span class="badge bg-${highestRiskResult.urgency === 'DARURAT' ? 'danger' : (highestRiskResult.urgency === 'SEGERA' ? 'warning' : (highestRiskResult.urgency === 'PERHATIAN' ? 'info' : 'secondary'))}">${highestRiskResult.urgency}</span></td>
                                 <td>${personResults.length}</td>
-                                <td>${personResults.map(r => `<small class="d-block text-muted mb-1">${r.title.substring(0, 40)}...</small>`).join('')}</td>
+                                <td>
+                                    <div class="article-links" style="max-height: 150px; overflow-y: auto;">
+                                        ${personResults.map(r => `
+                                            <div class="article-link-item mb-2">
+                                                <a href="${r.url}" target="_blank" class="d-flex align-items-start text-decoration-none">
+                                                    <div class="flex-shrink-0">
+                                                        <span class="badge rounded-pill bg-secondary me-1">
+                                                            <i class="bi bi-link-45deg"></i>
+                                                        </span>
+                                                    </div>
+                                                    <div class="ms-1 text-truncate small" style="max-width: 250px;" title="${r.title}">
+                                                        ${r.title.substring(0, 60)}${r.title.length > 60 ? '...' : ''}
+                                                    </div>
+                                                </a>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </td>
                             `;
                             
                             resultsTableBody.appendChild(row);

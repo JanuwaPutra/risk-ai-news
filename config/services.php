@@ -41,4 +41,10 @@ return [
         'domains' => env('NEWSAPI_DOMAINS', 'detik.com,kompas.com,cnnindonesia.com'),
     ],
 
+    'analysis_api' => [
+        'key' => env('ANALYSIS_API_KEY', ''),
+        'url' => env('ANALYSIS_API_URL', 'https://openrouter.ai/api/v1/chat/completions'),
+        'model' => env('ANALYSIS_API_MODEL', 'meta-llama/llama-4-maverick'),
+    ],
+
 ];

@@ -94,6 +94,40 @@
     .card-body {
         padding: 1rem 1.2rem;
     }
+    
+    /* Link button styling */
+    .btn-outline-primary {
+        transition: all 0.2s ease;
+        border-color: #4361ee;
+        color: #4361ee;
+    }
+    
+    .btn-outline-primary:hover {
+        background-color: #4361ee;
+        color: white;
+        transform: translateY(-2px);
+        box-shadow: 0 3px 5px rgba(0,0,0,0.1);
+    }
+    
+    .btn-outline-primary i {
+        font-size: 1.2rem;
+    }
+    
+    /* Make sure the link button is centered in the table cell */
+    td .btn {
+        margin: 0 auto;
+    }
+    
+    /* Responsive handling for the link button */
+    @media (max-width: 768px) {
+        .btn-outline-primary span {
+            display: none;
+        }
+        
+        .btn-outline-primary i {
+            margin: 0;
+        }
+    }
 </style>
 @endsection
 
@@ -335,6 +369,7 @@
                     <th>Faktor Risiko</th>
                     <th>Urgensi</th>
                     <th>Rekomendasi</th>
+                    <th style="width: 120px;">Link Artikel</th>
                 </tr>
             </thead>
             <tbody>
@@ -362,6 +397,19 @@
                         </span>
                     </td>
                     <td>{{ $result->rekomendasi }}</td>
+                    <td class="text-center">
+                        @if($result->url)
+                            <a href="{{ $result->url }}" target="_blank" 
+                               class="btn btn-sm btn-outline-primary d-flex align-items-center justify-content-center gap-1"
+                               data-bs-toggle="tooltip" data-bs-placement="left" 
+                               title="{{ $result->source ?? 'Buka artikel di tab baru' }}">
+                                <i class="bi bi-link-45deg"></i>
+                                <span>Buka</span>
+                            </a>
+                        @else
+                            <span class="badge bg-secondary">Tidak ada</span>
+                        @endif
+                    </td>
                 </tr>
                 @endforeach
             </tbody>
@@ -374,6 +422,12 @@
 @section('scripts')
 <script>
     document.addEventListener('DOMContentLoaded', function() {
+        // Initialize tooltips
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl)
+        });
+        
         // Initialize DataTable
         var dataTable = $('#analysisTable').DataTable({
             responsive: true,
@@ -392,8 +446,9 @@
                 zeroRecords: "Tidak ada data yang cocok"
             },
             columnDefs: [
-                { responsivePriority: 1, targets: [1, 6, 8] }, // Prioritas kolom yang ditampilkan di responsive view
-                { responsivePriority: 2, targets: [0, 3] }
+                { responsivePriority: 1, targets: [1, 6, 8, 10] }, // Prioritas kolom yang ditampilkan di responsive view
+                { responsivePriority: 2, targets: [0, 3] },
+                { width: "120px", targets: 10 } // Set width for link column
             ]
         });
         

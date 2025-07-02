@@ -23,14 +23,72 @@ class AnalysisApiService
         $jsonPattern = '/({[^{}]*(?:{[^{}]*})*[^{}]*})/';
         preg_match_all($jsonPattern, $text, $matches);
         
+        $validJson = null;
+        
         if (!empty($matches[0])) {
             foreach ($matches[0] as $match) {
                 try {
-                    return json_decode($match, true) ?: [];
+                    $decoded = json_decode($match, true);
+                    if (is_array($decoded)) {
+                        // Validate that it has the expected keys
+                        if (isset($decoded['ringkasan']) || isset($decoded['skor_risiko']) || isset($decoded['kategori'])) {
+                            $validJson = $decoded;
+                            break;
+                        }
+                    }
                 } catch (\Exception $e) {
                     continue;
                 }
             }
+        }
+        
+        // If we found valid JSON, ensure all required fields are present
+        if ($validJson) {
+            // Set defaults for any missing fields
+            $defaults = [
+                "ringkasan" => "Tidak ada ringkasan tersedia", 
+                "skor_risiko" => 0, 
+                "persentase_kerawanan" => "0%", 
+                "kategori" => "", 
+                "faktor_risiko" => ["Tidak ada faktor risiko teridentifikasi"], 
+                "rekomendasi" => "Tidak ada rekomendasi tersedia", 
+                "urgensi" => ""
+            ];
+            
+            foreach ($defaults as $key => $value) {
+                if (!isset($validJson[$key]) || empty($validJson[$key])) {
+                    $validJson[$key] = $value;
+                }
+            }
+            
+            // Ensure faktor_risiko is always an array
+            if (!is_array($validJson['faktor_risiko'])) {
+                if (is_string($validJson['faktor_risiko']) && !empty($validJson['faktor_risiko'])) {
+                    $validJson['faktor_risiko'] = [$validJson['faktor_risiko']];
+                } else {
+                    $validJson['faktor_risiko'] = ["Tidak ada faktor risiko teridentifikasi"];
+                }
+            }
+            
+            // Ensure kategori is properly set
+            if (empty($validJson['kategori'])) {
+                $score = $validJson['skor_risiko'] ?? 0;
+                if ($score >= 86) {
+                    $validJson['kategori'] = 'KRITIS';
+                } elseif ($score >= 61) {
+                    $validJson['kategori'] = 'TINGGI';
+                } elseif ($score >= 31) {
+                    $validJson['kategori'] = 'SEDANG';
+                } else {
+                    $validJson['kategori'] = 'RENDAH';
+                }
+            }
+            
+            // Ensure urgency is properly set based on risk category and score
+                            // Urgensi akan diatur otomatis oleh model AnalysisResult
+                $validJson['urgensi'] = '';
+            
+            return $validJson;
         }
         
         // Try to extract JSON from markdown code blocks
@@ -44,29 +102,82 @@ class AnalysisApiService
                     }
                     $block = trim($block);
                     $decoded = json_decode($block, true);
-                    if ($decoded) {
+                    if (is_array($decoded)) {
+                        // Validate that it has the expected keys
+                        if (isset($decoded['ringkasan']) || isset($decoded['skor_risiko']) || isset($decoded['kategori'])) {
+                            // Set defaults for any missing fields
+                            $defaults = [
+                                "ringkasan" => "Tidak ada ringkasan tersedia", 
+                                "skor_risiko" => 0, 
+                                "persentase_kerawanan" => "0%", 
+                                "kategori" => "RENDAH", 
+                                "faktor_risiko" => ["Tidak ada faktor risiko teridentifikasi"], 
+                                "rekomendasi" => "Tidak ada rekomendasi tersedia", 
+                                "urgensi" => ""
+                            ];
+                            
+                            foreach ($defaults as $key => $value) {
+                                if (!isset($decoded[$key]) || empty($decoded[$key])) {
+                                    $decoded[$key] = $value;
+                                }
+                            }
+                            
+                            // Ensure faktor_risiko is always an array
+                            if (!is_array($decoded['faktor_risiko'])) {
+                                if (is_string($decoded['faktor_risiko']) && !empty($decoded['faktor_risiko'])) {
+                                    $decoded['faktor_risiko'] = [$decoded['faktor_risiko']];
+                                } else {
+                                    $decoded['faktor_risiko'] = ["Tidak ada faktor risiko teridentifikasi"];
+                                }
+                            }
+                            
+                            // Ensure kategori is properly set
+                            if (empty($decoded['kategori'])) {
+                                $score = $decoded['skor_risiko'] ?? 0;
+                                if ($score >= 86) {
+                                    $decoded['kategori'] = 'KRITIS';
+                                } elseif ($score >= 61) {
+                                    $decoded['kategori'] = 'TINGGI';
+                                } elseif ($score >= 31) {
+                                    $decoded['kategori'] = 'SEDANG';
+                                } else {
+                                    $decoded['kategori'] = 'RENDAH';
+                                }
+                            }
+                            
+                            // Urgensi akan diatur otomatis oleh model AnalysisResult
+                            $decoded['urgensi'] = '';
+                            
                         return $decoded;
+                        }
                     }
                 }
             } catch (\Exception $e) {
                 // Continue to default return if this fails
+                Log::error("Error extracting JSON from code blocks: " . $e->getMessage());
             }
         }
         
+        Log::warning("Failed to extract valid JSON from API response. Using default values.");
+        
         // Default return if nothing works
-        return [
-            "ringkasan" => "Failed to extract JSON", 
+        $defaultResult = [
+            "ringkasan" => "Tidak dapat mengekstrak analisis yang valid dari respons API", 
             "skor_risiko" => 0, 
             "persentase_kerawanan" => "0%", 
             "kategori" => "RENDAH", 
-            "faktor_risiko" => ["Error parsing"], 
-            "rekomendasi" => "Coba lagi", 
+            "faktor_risiko" => ["Error parsing response"], 
+            "rekomendasi" => "Coba lagi nanti", 
             "urgensi" => "MONITORING",
             "nama" => "",
             "jabatan" => "N/A"
         ];
+        
+        return $defaultResult;
     }
     
+    // Metode determineUrgencyFromCategory dihapus karena logika sudah dipindahkan ke model AnalysisResult
+
     /**
      * Analyze paragraph using AI API
      *
@@ -215,10 +326,10 @@ class AnalysisApiService
             
             // Make API request
             $response = Http::withHeaders([
-                'analysis_api_key' => env('ANALYSIS_API_KEY'),
+                'Authorization' => 'Bearer ' . config('services.analysis_api.key'),
                 'Content-Type' => 'application/json'
-            ])->timeout(15)->post('https://openrouter.ai/api/v1/chat/completions', [
-                'model' => 'meta-llama/llama-4-maverick',
+            ])->timeout(15)->post(config('services.analysis_api.url'), [
+                'model' => config('services.analysis_api.model'),
                 'messages' => [
                     [
                         'role' => 'system',
@@ -249,6 +360,9 @@ class AnalysisApiService
                 if (isset($analysis['faktor_risiko']) && is_string($analysis['faktor_risiko'])) {
                     $analysis['faktor_risiko'] = [$analysis['faktor_risiko']];
                 }
+                
+                // Urgensi akan diatur otomatis oleh model AnalysisResult
+                $analysis['urgensi'] = '';
                 
                 // Cache the result
                 $this->cache[$cacheKey] = $analysis;
@@ -303,6 +417,54 @@ class AnalysisApiService
             
             $this->cache[$cacheKey] = $defaultResponse;
             return $defaultResponse;
+        }
+    }
+
+    /**
+     * Analyze content using person ID
+     *
+     * @param string $content
+     * @param int $personId
+     * @return array
+     */
+    public function analyze(string $content, int $personId): array
+    {
+        try {
+            // Get person details from ID
+            $person = Tokoh::find($personId);
+            if (!$person) {
+                Log::error("Person ID {$personId} not found in database");
+                return [
+                    "ringkasan" => "Tokoh tidak ditemukan", 
+                    "skor_risiko" => 0, 
+                    "persentase_kerawanan" => "0%", 
+                    "kategori" => "RENDAH", 
+                    "faktor_risiko" => ["ID tidak valid"], 
+                    "rekomendasi" => "Verifikasi ID tokoh", 
+                    "urgensi" => "",
+                    "nama" => "Unknown",
+                    "jabatan" => "Unknown"
+                ];
+            }
+            
+            $personName = $person->nama;
+            $personPosition = $person->jabatan ?? "";
+            
+            // Forward to the existing method
+            return $this->analyzeParagraph($content, $personName, $personPosition);
+        } catch (\Exception $e) {
+            Log::error("Error in analyze method: " . $e->getMessage());
+            return [
+                "ringkasan" => "Terjadi kesalahan dalam analisis", 
+                "skor_risiko" => 0, 
+                "persentase_kerawanan" => "0%", 
+                "kategori" => "RENDAH", 
+                "faktor_risiko" => ["Error: " . $e->getMessage()], 
+                "rekomendasi" => "Coba lagi", 
+                "urgensi" => "",
+                "nama" => "Error",
+                "jabatan" => "Error"
+            ];
         }
     }
 } 

@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AnalysisController;
 use App\Http\Controllers\TokohController;
 use App\Http\Controllers\NewsController;
+use App\Http\Controllers\FixController;
 
 // Dashboard as home
 Route::get('/', [AnalysisController::class, 'dashboard'])->name('dashboard');
@@ -34,3 +35,10 @@ Route::get('/news/analyze', [NewsController::class, 'index'])->name('news.analyz
 Route::get('/news/analyze-all', [NewsController::class, 'index'])->name('news.analyze-all.get');
 Route::post('/news/analyze', [NewsController::class, 'analyzeArticle'])->name('news.analyze');
 Route::post('/news/analyze-all', [NewsController::class, 'analyzeArticleForAll'])->name('news.analyze-all');
+
+// Fix routes
+Route::prefix('fix')->group(function () {
+    Route::get('/check-schema', [FixController::class, 'checkSchema']);
+    Route::get('/database', [FixController::class, 'fixDatabaseIssues']);
+    Route::get('/urgency-levels', [FixController::class, 'fixUrgencyLevels']);
+});

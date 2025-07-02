@@ -71,37 +71,24 @@ class AnalysisController extends Controller
      */
     public function analysisPage(Request $request)
     {
-        // Default filter values
-        $kategoriFilter = $request->input('kategori', 'all');
-        $urgensiFilter = $request->input('urgensi', 'all');
+        $query = $request->input('query');
+        $fromDate = $request->input('from_date');
+        $toDate = $request->input('to_date');
+        $kategori = $request->input('kategori');
+        $urgensi = $request->input('urgensi');
         
-        // Query builder
-        $query = AnalysisResult::query();
+        // Get analysis results
+        $results = $this->getAnalysisResults($query, $fromDate, $toDate, $kategori, $urgensi);
         
-        // Apply filters
-        if ($kategoriFilter !== 'all') {
-            $query->where('kategori', $kategoriFilter);
+        // Log the urgency levels of the results
+        foreach ($results as $index => $result) {
+            Log::info("Result #{$index}: ID={$result->id}, Category={$result->kategori}, Score={$result->skor_risiko}, Urgency={$result->urgensi}");
         }
-        
-        if ($urgensiFilter !== 'all') {
-            $query->where('urgensi', $urgensiFilter);
-        }
-        
-        // Get filtered results
-        $results = $query->orderBy('tanggal_tambah', 'desc')->get();
-        
-        // Get all results for stats (not filtered)
-        $allResults = AnalysisResult::all();
         
         // Calculate statistics
-        $stats = $this->calculateStats($allResults);
+        $stats = $this->calculateStats($results);
         
-        return view('analysis', [
-            'results' => $results,
-            'selected_kategori' => $kategoriFilter,
-            'selected_urgensi' => $urgensiFilter,
-            'stats' => $stats
-        ]);
+        return view('analysis', compact('results', 'stats', 'query', 'fromDate', 'toDate', 'kategori', 'urgensi'));
     }
 
     /**
@@ -249,6 +236,7 @@ class AnalysisController extends Controller
                         }
                         
                         // Save result to database
+                        try {
                         AnalysisResult::updateOrCreate(
                             [
                                 'nama' => $personName,
@@ -256,16 +244,22 @@ class AnalysisController extends Controller
                             ],
                             [
                                 'jabatan' => $jabatan,
+                                    'source' => 'Imported Document',
+                                    'url' => '', // Empty URL for imported documents
                                 'ringkasan' => $analysis['ringkasan'] ?? 'N/A',
                                 'skor_risiko' => $analysis['skor_risiko'] ?? 0,
                                 'persentase_kerawanan' => $analysis['persentase_kerawanan'] ?? '0%',
                                 'kategori' => $analysis['kategori'] ?? 'RENDAH',
                                 'faktor_risiko' => $faktorRisikoStr,
                                 'rekomendasi' => $analysis['rekomendasi'] ?? 'N/A',
-                                'urgensi' => $analysis['urgensi'] ?? 'MONITORING',
+                                'urgensi' => $analysis['urgensi'] ,
                                 'tanggal_tambah' => now()
                             ]
                         );
+                        } catch (\Exception $dbException) {
+                            Log::error("Database error saving analysis result for {$personName}: " . $dbException->getMessage());
+                            // Continue processing other people
+                        }
                         
                     } catch (\Exception $e) {
                         $personName = isset($person['nama']) ? $person['nama'] : 'Unknown';
@@ -450,5 +444,58 @@ class AnalysisController extends Controller
             Log::error("Error exporting results: {$e->getMessage()}");
             return redirect()->route('dashboard')->with('error', 'Error exporting results: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Get filtered analysis results
+     *
+     * @param string|null $query
+     * @param string|null $fromDate
+     * @param string|null $toDate
+     * @param string|null $kategori
+     * @param string|null $urgensi
+     * @return \Illuminate\Database\Eloquent\Collection
+     */
+    private function getAnalysisResults($query = null, $fromDate = null, $toDate = null, $kategori = null, $urgensi = null)
+    {
+        $resultsQuery = AnalysisResult::query();
+        
+        // Filter by search query
+        if ($query) {
+            $resultsQuery->where(function($q) use ($query) {
+                $q->where('nama', 'like', "%{$query}%")
+                  ->orWhere('jabatan', 'like', "%{$query}%")
+                  ->orWhere('paragraf', 'like', "%{$query}%")
+                  ->orWhere('ringkasan', 'like', "%{$query}%");
+            });
+        }
+        
+        // Filter by date range
+        if ($fromDate) {
+            $resultsQuery->whereDate('tanggal_tambah', '>=', $fromDate);
+        }
+        
+        if ($toDate) {
+            $resultsQuery->whereDate('tanggal_tambah', '<=', $toDate);
+        }
+        
+        // Filter by kategori
+        if ($kategori && $kategori !== 'all') {
+            $resultsQuery->where('kategori', $kategori);
+        }
+        
+        // Filter by urgensi
+        if ($urgensi && $urgensi !== 'all') {
+            $resultsQuery->where('urgensi', $urgensi);
+        }
+        
+        $results = $resultsQuery->orderBy('tanggal_tambah', 'desc')->get();
+        
+        // Log the urgency levels of each result
+        foreach ($results as $index => $result) {
+            Log::info("Analysis result #{$index}: ID={$result->id}, Category={$result->kategori}, Score={$result->skor_risiko}, Urgency={$result->urgensi}");
+        }
+        
+        return $results;
     }
 }

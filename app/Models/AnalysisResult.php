@@ -11,6 +11,7 @@ class AnalysisResult extends Model
         'jabatan',
         'paragraf',
         'source',
+        'url',
         'kata_kunci',
         'ringkasan',
         'skor_risiko',
@@ -41,5 +42,48 @@ class AnalysisResult extends Model
     {
         $decoded = json_decode($value, true);
         return $decoded ?: [];
+    }
+    
+    /**
+     * Boot function to add model events
+     */
+    protected static function boot()
+    {
+        parent::boot();
+        
+        // Before saving, automatically determine urgency level
+        static::saving(function ($model) {
+            $model->urgensi = self::determineUrgencyFromCategory($model->kategori, $model->skor_risiko);
+        });
+    }
+    
+    /**
+     * Determine urgency level based on risk category and score
+     *
+     * @param string $category
+     * @param int $score
+     * @return string
+     */
+    private static function determineUrgencyFromCategory(string $category, int $score): string
+    {
+        $urgency = 'MONITORING'; // Default
+        
+        switch ($category) {
+            case 'KRITIS':
+                $urgency = 'DARURAT';
+                break;
+            case 'TINGGI':
+                $urgency = 'SEGERA';
+                break;
+            case 'SEDANG':
+                $urgency = 'PERHATIAN';
+                break;
+            case 'RENDAH':
+            default:
+                $urgency = 'MONITORING';
+                break;
+        }
+        
+        return $urgency;
     }
 }
