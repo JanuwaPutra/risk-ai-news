@@ -215,7 +215,7 @@ class AnalysisApiService
             
             // Make API request
             $response = Http::withHeaders([
-                'Authorization' => 'Bearer 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',
+                'analysis_api_key' => env('ANALYSIS_API_KEY'),
                 'Content-Type' => 'application/json'
             ])->timeout(15)->post('https://openrouter.ai/api/v1/chat/completions', [
                 'model' => 'meta-llama/llama-4-maverick',

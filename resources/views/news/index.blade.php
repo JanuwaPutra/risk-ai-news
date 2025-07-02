@@ -87,7 +87,7 @@
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="include_today" name="include_today" value="1" {{ $includeToday ? 'checked' : '' }}>
                         <label class="form-check-label" for="include_today">
-                            Sertakan berita hari ini (1 Juli 2025)
+                            Sertakan berita hari ini 
                         </label>
                     </div>
                 </div>
